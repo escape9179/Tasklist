@@ -1,17 +1,18 @@
 package tasklist
 
-import kotlinx.datetime.Clock
-import kotlinx.datetime.LocalDate
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
+import kotlinx.datetime.*
 import java.lang.NumberFormatException
 import kotlin.system.exitProcess
 
-val taskList = mutableListOf<MutableList<String>>()
+val taskList = mutableListOf<Task>()
 var taskNumber = 1
 const val YEAR_LENGTH = 4
 const val MONTH_LENGTH_MAX = 2
 const val DAY_LENGTH_MAX = 2
+
+data class Task(val contents: List<String>, val date: LocalDateTime, val priority: String) {
+
+}
 
 fun requestDate(): String {
     println("Input the date (yyyy-mm-dd):")
