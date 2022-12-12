@@ -2,7 +2,10 @@ package tasklist
 
 import kotlinx.datetime.*
 import java.lang.NumberFormatException
+import java.time.LocalTime
+import kotlin.math.min
 import kotlin.system.exitProcess
+import kotlin.time.Duration
 
 val taskList = mutableListOf<Task>()
 var taskNumber = 1
@@ -10,11 +13,24 @@ const val YEAR_LENGTH = 4
 const val MONTH_LENGTH_MAX = 2
 const val DAY_LENGTH_MAX = 2
 
-data class Task(val contents: List<String>, val date: LocalDateTime, val priority: String) {
+data class Task(val date: LocalDate, val time: Time, val priority: String, val contents: MutableList<String> = mutableListOf()) {
+    val id = lastId
+    fun dateAsString(): String {
+        return "${date.year}-${date.month}-${date.dayOfMonth}"
+    }
 
+    companion object {
+        var lastId: Int = 1
+    }
 }
 
-fun requestDate(): String {
+data class Time(val hours: Int, val minutes: Int) {
+    override fun toString(): String {
+        return "$hours:$minutes"
+    }
+}
+
+fun requestDate(): LocalDate {
     println("Input the date (yyyy-mm-dd):")
     val input = readln()
     val parts = input.split('-')
@@ -30,7 +46,7 @@ fun requestDate(): String {
         if (year.length == YEAR_LENGTH && month.length <= MONTH_LENGTH_MAX && day.length <= DAY_LENGTH_MAX
             && year.toIntOrNull() != null && 0 < month.toInt() && month.toInt() <= 12 && 0 < day.toInt() && day.toInt() <= 31
         ) {
-            return "$year-$month-$day"
+            return LocalDate(year.toInt(), month.toInt(), day.toInt())
         }
         println("The input date is invalid")
         return requestDate()
@@ -43,7 +59,7 @@ fun requestDate(): String {
     }
 }
 
-fun requestTime(): String {
+fun requestTime(): Time {
     println("Input the time (hh:mm):")
     val input = readln()
     val parts = input.split(':')
@@ -51,9 +67,13 @@ fun requestTime(): String {
         println("The input time is invalid")
         return requestTime()
     }
+    val hours = parts[0].toInt()
+    val minutes = parts[1].toInt()
+
+
     if (parts[0].isNotEmpty() && parts[0].length <= 2 && parts[1].isNotEmpty() && parts[1].length <= 2
-        && parts[0].toInt() <= 23 && parts[1].toInt() <= 59) {
-        return input
+        && parts[0].toInt() <= 23) {
+        return Time(hours, minutes)
     }
     println("The input time is invalid")
     return requestTime()
@@ -74,8 +94,7 @@ fun requestInput() {
         "add" -> {
             println("Input the task priority (C, H, N, L):")
             val priority = requestPriority()
-            val date = requestDate()
-            val time = requestTime()
+            val task = Task(requestDate(), requestTime(), priority)
 
             println("Input a new task (enter a blank line to end):")
             var input = readln().trim()
@@ -85,14 +104,12 @@ fun requestInput() {
                 return
             }
             while (input.isNotBlank()) {
-                if (taskList.size != taskNumber) {
-                    taskList.add(mutableListOf("$date $time $priority", input))
-                } else {
-                    taskList[taskList.indices.last].add(input)
-                }
+                task.contents.add(input)
                 input = readln().trim()
             }
-            taskNumber++
+            taskList.add(task)
+//            taskNumber++
+            Task.lastId++
             println("Input an action (add, print, end):")
             return
         }
@@ -105,15 +122,10 @@ fun requestInput() {
             }
             // Output the task list, prepending a number before each task and using
             // format specifiers to add spaces between the number and task.
-            taskList.forEachIndexed { index, taskLines ->
-                if (taskLines.size == 1) {
-                    println("%-2d %s".format(index + 1, taskLines[0]))
-                    println()
-                } else {
-                    println("%-2d %s".format(index + 1, taskLines[0]))
-                    taskLines.subList(1, taskLines.size).forEach { line -> println(line.padStart(line.length + 3)) }
-                    println()
-                }
+            taskList.forEach { task ->
+                println("%-2d %s %s %s".format(task.id, task.date, task.time, task.priority))
+                task.contents.forEach { println(it.padStart(it.length + 3))  }
+                println()
             }
             println("Input an action (add, print, end):")
             return
@@ -133,7 +145,7 @@ fun requestInput() {
 }
 
 fun main() {
-    println("Input an action (add, print, end):")
+    println("Input an action (add, print, edit, delete, end):")
     while (true) {
         requestInput()
     }
