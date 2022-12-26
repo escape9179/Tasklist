@@ -1,6 +1,11 @@
-package tasklist
+wpackage tasklist
 
+import com.squareup.moshi.JsonAdapter
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.datetime.*
+import java.io.File
 import java.lang.NumberFormatException
 import kotlin.system.exitProcess
 
@@ -11,21 +16,29 @@ const val DAY_LENGTH_MAX = 2
 const val INTRODUCTION_LINE = "Input an action (add, print, edit, delete, end):"
 const val NO_TASKS_INPUT_MESSAGE = "No tasks have been input"
 const val INVALID_TASK_NUMBER_MESSAGE = "Invalid task number"
-val currentYear = Clock.System.now().toLocalDateTime(TimeZone.UTC).year
+const val BG_RED = "\u001B[101m \u001B[0m"
+const val BG_YELLOW = "\u001B[103m \u001B[0m"
+const val BG_GREEN = "\u001B[102m \u001B[0m"
+const val BG_BLUE = "\u001B[104m \u001B[0m"
+const val TASK_MAX_LENGTH = 44
+const val DATA_FILE_NAME = "tasklist.json"
 
-data class Task(var priority: String, var date: LocalDate, var time: Time, var contents: MutableList<String> = mutableListOf()) {
+data class Task(
+    var priority: Priority,
+    var date: String,
+    var time: Time,
+    var contents: MutableList<String> = mutableListOf()
+) {
     var id = taskList.size + 1
-    fun dateAsString(): String {
-        return "${date.year}-${date.month}-${date.dayOfMonth}"
-    }
 
-    fun getDueTag(): String {
+    fun dueTag(): DueTag {
         val currentDate = Clock.System.now().toLocalDateTime(TimeZone.UTC).date
-        val daysUntil = currentDate.daysUntil(date)
+//        val daysUntil = currentDate.daysUntil(date)
+        val daysUntil = currentDate.daysUntil(LocalDate.parse(date))
         return when {
-            daysUntil < 0 -> "O"
-            daysUntil > 0 -> "I"
-            else -> "T"
+            daysUntil < 0 -> DueTag.OVERDUE
+            daysUntil > 0 -> DueTag.IN_TIME
+            else -> DueTag.TODAY
         }
     }
 
@@ -36,21 +49,70 @@ data class Task(var priority: String, var date: LocalDate, var time: Time, var c
             return
         }
 
-            println("%-2d %s %s %s %s".format(id, date, time, priority, getDueTag()))
-            for (line in contents) {
-                println(line.padStart(line.length + 3))
-            }
-            println()
+        val chunkedContents = contents.flatMap { it.chunked(TASK_MAX_LENGTH) }
+        println(
+            "| ${
+                id.toString().padEnd(1)
+            }  | $date | $time | ${priority.color} | ${dueTag().color} |${chunkedContents[0].padEnd(TASK_MAX_LENGTH)}|"
+        )
+        chunkedContents.drop(1).forEach {
+            println(
+                """
+        |    |            |       |   |   |${it.padEnd(44)}|
+        """.trimIndent()
+            )
+        }
+        println("+----+------------+-------+---+---+--------------------------------------------+")
+    }
+
+    enum class Priority(val letter: String, val color: String) {
+        CRITICAL("C", BG_RED), HIGH("H", BG_YELLOW), NORMAL("N", BG_GREEN), LOW("L", BG_BLUE)
+    }
+
+    enum class DueTag(val letter: String, val color: String) {
+        IN_TIME("I", BG_GREEN), TODAY("T", BG_YELLOW), OVERDUE("O", BG_RED)
     }
 }
 
 data class Time(val hours: Int, val minutes: Int) {
+
     override fun toString(): String {
         return "%02d:%02d".format(hours, minutes)
     }
 }
 
-fun requestDate(): LocalDate {
+fun loadTaskList() {
+    val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+    val type = Types.newParameterizedType(MutableList::class.java, Task::class.java)
+    val taskAdapter = moshi.adapter<MutableList<Task>>(type)
+    val dataFile = File(DATA_FILE_NAME)
+    if (!dataFile.exists()) {
+        dataFile.createNewFile()
+        return
+    }
+    taskList.addAll(taskAdapter.fromJson(dataFile.readText())!!)
+}
+
+fun saveTaskList(taskList: MutableList<Task>): Unit {
+    val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+    val type = Types.newParameterizedType(MutableList::class.java, Task::class.java)
+    val taskAdapter = moshi.adapter<MutableList<Task>>(type)
+    val dataFile = File(DATA_FILE_NAME)
+    dataFile.writeText(taskAdapter.toJson(taskList))
+}
+
+fun printTaskListHeader(): Unit {
+    println(
+        """
+            +----+------------+-------+---+---+--------------------------------------------+
+            | N  |    Date    | Time  | P | D |                   Task                     |
+            +----+------------+-------+---+---+--------------------------------------------+
+        """.trimIndent()
+    )
+}
+
+
+fun requestDate(): String {
     println("Input the date (yyyy-mm-dd):")
     val input = readln()
     val parts = input.split('-')
@@ -59,14 +121,15 @@ fun requestDate(): LocalDate {
         return requestDate()
     }
     val year = parts[0]
-    val month = if (parts[1].length < 2) "0"+parts[1] else parts[1]
-    val day = if (parts[2].length < 2) "0"+parts[2] else parts[2]
+    val month = if (parts[1].length < 2) "0" + parts[1] else parts[1]
+    val day = if (parts[2].length < 2) "0" + parts[2] else parts[2]
 
     return try {
         if (year.length == YEAR_LENGTH && month.length <= MONTH_LENGTH_MAX && day.length <= DAY_LENGTH_MAX
             && year.toIntOrNull() != null && 0 < month.toInt() && month.toInt() <= 12 && 0 < day.toInt() && day.toInt() <= 31
         ) {
-            return LocalDate(year.toInt(), month.toInt(), day.toInt())
+            LocalDate (year.toInt(), month.toInt(), day.toInt())
+            return "$year-$month-$day"
         }
         println("The input date is invalid")
         return requestDate()
@@ -91,21 +154,21 @@ fun requestTime(): Time {
     val minutes = parts[1].toInt()
 
     if (parts[0].isNotEmpty() && parts[0].length <= 2 && parts[1].isNotEmpty() && parts[1].length <= 2
-        && parts[0].toInt() <= 23 && parts[1].toInt() < 60) {
+        && parts[0].toInt() <= 23 && parts[1].toInt() < 60
+    ) {
         return Time(hours, minutes)
     }
     println("The input time is invalid")
     return requestTime()
 }
 
-fun requestPriority(): String {
+fun requestPriority(): Task.Priority {
     println("Input the task priority (C, H, N, L):")
-    val taskPriorities = arrayOf("C", "H", "N", "L")
     val priority = readln().uppercase()
-    if (priority !in taskPriorities) {
+    if (priority !in Task.Priority.values().map { it.letter }) {
         return requestPriority()
     }
-    return priority
+    return Task.Priority.values().first { it.letter == priority }
 }
 
 fun requestTask(): MutableList<String> {
@@ -129,7 +192,7 @@ fun requestInput() {
             val task = Task(requestPriority(), requestDate(), requestTime(), requestTask())
 
             taskList.add(task)
-//            taskNumber++
+            saveTaskList(taskList)
             println(INTRODUCTION_LINE)
             return
         }
@@ -140,20 +203,9 @@ fun requestInput() {
                 println(INTRODUCTION_LINE)
                 return
             }
-//
-//            // Output the task list, prepending a number before each task and using
-//            // format specifiers to add spaces between the number and task.
-//            taskList.forEach { task ->
-////                val taskContents = task.contents.joinToString("\n")
-//                println("%-2d %s %s %s %s".format(task.id, task.date, task.time, task.priority, task.getDueTag()))
-////                + "\n" + taskContents.padStart(taskContents.length + 3))
-//                for (line in task.contents) {
-//                    println(line.padStart(line.length + 3))
-//                }
-////                task.contents.forEach { println(it.padStart(it.length + 3))  }
-//                println()
-//            }
+            printTaskListHeader()
             taskList.forEach { it.print() }
+            println()
             println(INTRODUCTION_LINE)
             return
         }
@@ -169,14 +221,8 @@ fun requestInput() {
                 println(INTRODUCTION_LINE)
                 return
             }
+            printTaskListHeader()
             taskList.forEach { it.print() }
-//            println("Input the task number (1-${taskList.size}):")
-//            val input = readln()
-//            if (!isTaskNumber(input)) {
-//                println(INVALID_TASK_NUMBER_MESSAGE)
-//                requestTaskNumber()
-//                return
-//            }
             val taskNumber = requestTaskNumber()
             taskList.removeIf { it.id == taskNumber }
             taskList.forEachIndexed { i, task -> task.id = i + 1 }
@@ -190,6 +236,7 @@ fun requestInput() {
                 println(INTRODUCTION_LINE)
                 return
             }
+            printTaskListHeader()
             taskList.forEach { it.print() }
             println()
             val taskNumber = requestTaskNumber()
@@ -205,6 +252,17 @@ fun requestInput() {
     }
 }
 
+fun requestTaskNumber(): Int {
+    println("Input the task number (1-${taskList.size}):")
+    val taskNumber = readln()
+    return if (isTaskNumber(taskNumber)) {
+        taskNumber.toInt()
+    } else {
+        println(INVALID_TASK_NUMBER_MESSAGE)
+        requestTaskNumber()
+    }
+}
+
 fun editTask(taskNumber: Int) {
     println("Input a field to edit (priority, date, time, task):")
     when (readln().lowercase()) {
@@ -212,18 +270,22 @@ fun editTask(taskNumber: Int) {
             val priority = requestPriority()
             taskList[taskNumber - 1].priority = priority
         }
+
         "date" -> {
             val date = requestDate()
             taskList[taskNumber - 1].date = date
         }
+
         "time" -> {
             val time = requestTime()
             taskList[taskNumber - 1].time = time
         }
+
         "task" -> {
             val task = requestTask()
             taskList[taskNumber - 1].contents = task
         }
+
         else -> {
             println("Invalid field")
             return editTask(taskNumber)
@@ -240,18 +302,8 @@ fun isTaskNumber(number: String): Boolean {
     }
 }
 
-fun requestTaskNumber(): Int {
-    println("Input the task number (1-${taskList.size}):")
-    val taskNumber = readln()
-    return if (isTaskNumber(taskNumber)) {
-        taskNumber.toInt()
-    } else {
-        println(INVALID_TASK_NUMBER_MESSAGE)
-        requestTaskNumber()
-    }
-}
-
 fun main() {
+    loadTaskList()
     println(INTRODUCTION_LINE)
     while (true) {
         requestInput()
